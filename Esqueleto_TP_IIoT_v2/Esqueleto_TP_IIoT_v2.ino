@@ -10,7 +10,9 @@
 #define SerialMon Serial     // Monitor serial para depuración
 #define SerialAT Serial3     // Comunicación con el módem 4G
 
-#define MINIMUM_WELL_LEVEL 10.0
+#define MAXIMUM_TEMPERATURE 29.0
+
+#define BUS_MAX_CAPACITY 50
 
 RIC3DMODEM gModem;
 
@@ -23,7 +25,7 @@ const char apnPassword[] = "";
 
 const char mqttHost[]   = "10.25.1.152";          // host de tdata
 const int mqttPort = 4098;                        // puerto
-const char mqttUser[]   = "1ywx579ruc54pp3ch33v"; // aca se debe poner el token del device de tdata // aa1f3770-8dcd-11f0-810b-393772542f99
+const char mqttUser[]   = "jlesbkyytj8o88boeank"; // aca se debe poner el token del device de tdata // aa1f3770-8dcd-11f0-810b-393772542f99
 const char *mqttPassword = NULL; //1ywx579ruc54pp3ch33v
 
 // Module baud rate
@@ -33,51 +35,37 @@ uint32_t rate = 115200;
 bool sim_selected = 1;
 
 // Variables para sensores
-/*float sensor1_valor = 0.0;
-float sensor2_valor = 0.0;*/
-uint8_t pump_state = LOW;
 
-float caudal = 0.0;
-float level = 0.0;
+uint8_t doors_state = LOW;
+
+float temperature = 0.0;
 // Añadir más variables según los sensores utilizados
 
 // Variables para filtros y estadísticas
 const int orden_filtro = ORDER_FILTER;  // Puede ser 1 para filtro de primer orden o 5 para media móvil
-float buffer_sensor_caudal[orden_filtro] = {0};  // Buffer para media móvil
-float buffer_sensor_level[orden_filtro] = {0};
+float buffer_sensor_temperature[orden_filtro] = {0};
 
 // Añadir más buffers si es necesario
 
-float filtered_value_caudal = 0.0;
-float filtered_value_level = 0.0;
+float filtered_value_temperature = 0.0;
 
- /*
-float max_sensor1 = -INFINITY;
-float min_sensor1 = INFINITY;
-float sum_sensor1 = 0.0;
+float sum_temperature = 0.0;
 
-float max_sensor2 = -INFINITY;
-float min_sensor2 = INFINITY;
-float sum_sensor2 = 0.0;
-*/
+int measurement_count = 0;
 
-float max_caudal = -INFINITY;
-float min_caudal = INFINITY;
-float sum_caudal = 0.0;
+float average_temperature = 0.0;
 
-float max_level = -INFINITY;
-float min_level = INFINITY;
-float sum_level = 0.0;
+unsigned long speedPulses = 0;
+unsigned long accelerartionPulses = 0;
+unsigned long passengerPulses = 0;
 
-int contador_mediciones = 0;
-
-unsigned long caudalPulses = 0;
+float speed = 0.0;
 
 // Variables para gestión de alarmas y errores
-bool flow_meter_disconnected_loop = false;
-bool level_meter_disconnected_loop = false;
-bool pump_off = false;
-bool minimun_level_reached = false;
+bool thermistor_disconnected_loop = false;
+bool max_temperature_level_reached = false;
+
+bool door_open = false;
 // Añadir más flags según sea necesario
 
 // Temporizadores
@@ -85,39 +73,61 @@ unsigned long tiempo_medicion = 0;
 const unsigned long intervalo_medicion = 1000;  // Intervalo para mediciones (1 segundo)
 
 unsigned long tiempo_reporte = 0;
-const unsigned long intervalo_reporte = 900000; // Intervalo para reportes (15 minutos)
+const unsigned long intervalo_reporte = 10000; // Intervalo para reportes (10 segundos)
 
 //-------------------------------------
-volatile uint8_t lastDI3 = LOW;
-volatile uint32_t pulseCounter = 0;
 volatile long lastLedBlink = 0;
 
 volatile uint8_t lastDI0 = LOW;
-volatile uint32_t caudalPulseCounter = 0;
+volatile uint32_t speedPulseCounter = 0;
+
+volatile uint8_t lastDI3 = LOW;
+volatile uint32_t accelerationCounter = 0;
+
+volatile uint8_t lastDI4 = LOW;
+volatile uint32_t passengerUpCounter = 0;
+
+volatile uint8_t lastDI5 = LOW;
+volatile uint32_t passengerDownCounter = 0;
 
 //-------------------------------------
 void timer1ISR(void) {
-  //conteo de pulsos
-  uint8_t di3 = digitalRead(DI3);
-  if (di3 != lastDI3) {
-    lastDI3 = di3;
-    pulseCounter++;
-    digitalWrite(LED3, !digitalRead(LED3));
-  }
-
-  //led blink
-  if (millis() - lastLedBlink > 1000) {
-    lastLedBlink = millis();
-    digitalWrite(LED1, !digitalRead(LED1));
-    SerialMon.println(F("Blink LED1"));
-  }
-
   uint8_t di0 = digitalRead(DI0);
   if (di0 != lastDI0) {
     lastDI0 = di0;
     if (di0 == HIGH) {
-      caudalPulseCounter++;
+      speedPulseCounter++;
     }
+  }
+
+  uint8_t di3 = digitalRead(DI3);
+  if (di3 != lastDI3) {
+    lastDI3 = di3;
+    if (di3 == HIGH) {
+      accelerationCounter++;
+    }
+  }
+
+  uint8_t di4 = digitalRead(DI4);
+  if (di4 != lastDI3) {
+    lastDI4 = di4;
+    if (di4 == HIGH) {
+      passengerUpCounter++;
+    }
+  }
+
+  uint8_t di5 = digitalRead(DI5);
+  if (di5 != lastDI5) {
+    lastDI5 = di5;
+    if (di5 == HIGH) {
+      passengerDownCounter++;
+    }
+  }
+    //led blink
+  if (millis() - lastLedBlink > 1000) {
+    lastLedBlink = millis();
+    digitalWrite(LED1, !digitalRead(LED1));
+    SerialMon.println(F("Blink LED1"));
   }
 }
 
@@ -159,28 +169,43 @@ void leerSensores() {
     // sensor1_valor = analogRead(PIN_SENSOR1);
     // Realizar conversión de unidades si es necesario
 
-  caudal = analogRead(AI0) / 40.0;
-  level = analogRead(AI1) / 40.0;
-  pump_state = digitalRead(DI2);
+  temperature = analogRead(AI0) / 40.0;
+  doors_state = digitalRead(DI2);
 
-  SerialMon.print(F("Midiendo estado de la bomba: "));
-  SerialMon.println(pump_state);
+  SerialMon.print(F("Midiendo estado de las puertas: "));
+  SerialMon.println(doors_state);
 
-  SerialMon.print(F("Midiendo caudal: "));
-  SerialMon.println(caudal);
-
-  SerialMon.print(F("Midiendo nivel: "));
-  SerialMon.println(level);
+  SerialMon.print(F("Midiendo temperatura: "));
+  SerialMon.println(temperature);
     
   //noInterrupts();
-  caudalPulses += caudalPulseCounter;
-  caudalPulseCounter = 0;
+  speedPulses += speedPulseCounter;
+  speedPulseCounter = 0;
   //interrupts();
 
-  SerialMon.print(F("Midiendo pulsos: "));
-  SerialMon.println(caudalPulses);
+  SerialMon.print(F("Midiendo pulsos de velocidad: "));
+  SerialMon.println(speedPulses);
 
-  contador_mediciones++;
+  accelerartionPulses += accelerationCounter;
+  accelerationCounter = 0;
+
+  SerialMon.print(F("Midiendo pulsos de aceleración: "));
+  SerialMon.println(accelerartionPulses);
+
+  passengerPulses += passengerUpCounter;
+  passengerUpCounter = 0;
+
+  SerialMon.print(F("Midiendo pulsos de subida de pasajeros: "));
+  SerialMon.println(passengerPulses);
+
+  passengerPulses = passengerPulses < passengerDownCounter ? 0 : passengerPulses - passengerDownCounter;
+  passengerDownCounter = 0;
+
+  SerialMon.print(F("Midiendo pulsos de bajada de pasajeros: "));
+  SerialMon.println(passengerPulses);
+
+
+  measurement_count++;
 }
 
 // Funciones para aplicar filtros
@@ -199,7 +224,7 @@ float aplicarMediaMovil(float* buffer, float nuevo_valor) {
     }
     buffer[0] = nuevo_valor;
 
-    int cant = contador_mediciones < orden_filtro ? contador_mediciones : orden_filtro;
+    int cant = measurement_count < orden_filtro ? measurement_count : orden_filtro;
     //calculate the sum for the filtered value 
     for (int i = 0; i < cant; i++){
       sum += buffer[i]; 
@@ -214,25 +239,18 @@ void actualizarEstadisticas() {
     // Actualizar máximos, mínimos y suma para promedios
     // Incrementar contador de mediciones
 
-  if (filtered_value_caudal < min_caudal) {
-    min_caudal = filtered_value_caudal;
-  } 
-  
-  if (filtered_value_caudal > max_caudal) {
-    max_caudal = filtered_value_caudal;
-  }
-  
-  sum_caudal += filtered_value_caudal;
+  sum_temperature += filtered_value_temperature;
 
-  if (filtered_value_level < min_level) {
-    min_caudal = filtered_value_level;
-  } 
-  
-  if (filtered_value_level > max_level) {
-    max_caudal = filtered_value_level;
-  }
+  //TODO calculate speed based on pulses
+  //speed = speed_pulses ...
+}
 
-  sum_level += filtered_value_level;
+void verificarSensoresDesconetados() {
+  SerialMon.println(F("Verificar sensores conectados"));
+
+  if (filtered_value_temperature < 4.0) {
+    thermistor_disconnected_loop = true;
+  } 
 }
 
 // Funciones para detección de alarmas y errores
@@ -241,20 +259,12 @@ void verificarAlarmas() {
     // Verificar si los valores de los sensores superan umbrales definidos
     // Actualizar los flags de alarma correspondientemente
 
-  if (filtered_value_caudal < 4.0) {
-    flow_meter_disconnected_loop = true;
+  if(((filtered_value_temperature - 4.0) * 100.0 / 16.0) - 20 >= MAXIMUM_TEMPERATURE) {
+    max_temperature_level_reached = true;
   }
 
-   if (filtered_value_level < 4.0) {
-    level_meter_disconnected_loop = true;
-  } 
-
-  if(((filtered_value_level - 4.0) * 100.0 / 16.0) <= MINIMUM_WELL_LEVEL) {
-    minimun_level_reached = true;
-  }
-
-  if (pump_state == LOW) {
-    pump_off = true;
+  if (doors_state == LOW) {
+    door_open = true;
   }
 }
 
@@ -265,23 +275,18 @@ void enviarAlarmas() {
 
   char payload[32];
 
-  if (flow_meter_disconnected_loop) {
-    gModem.publishData("alarma/caudalimetro_desconectado", "ALERTA: se a desconectado el caudalimetro");
+  if (thermistor_disconnected_loop) {
+    gModem.publishData("termistor_desconectado", "true");
   }
 
-  if (level_meter_disconnected_loop) {
-    gModem.publishData("alarma/sensor_de_nivel_desconectado", "ALERTA: se a desconectado el sensor de nivel");
+  if (max_temperature_level_reached) {
+    gModem.publishData("temperatura_maxima", "true");
+  }
+  
+  if (door_open) {
+    gModem.publishData("puerta_abierta", "true");
   }
 
-  if (pump_off) {
-    gModem.publishData("alarma/bomba_apagada", "ALERTA: se a apagado la bomba");
-  }
-  
-  if (minimun_level_reached) {
-    snprintf(payload, sizeof(payload), "ALERTA: El nivel del caudal esta por debajo del minimo %4.2f", filtered_value_level);
-    gModem.publishData("alarma/minimo_nivel_del_pozo", payload);
-  }
-  
 
   resetearAlarmas();
 }
@@ -299,31 +304,14 @@ void enviarReporte() {
 
   // this can be used for safer stuff: snprintf(value_str_buffer, "%4.2f")
 
-  char max_caudal_str[] = "Max Caudal";
-  char min_caudal_str[] = "Min Caudal";
-  char sum_caudal_str[] = "Sum Caudal";
-  
-  dtostrf(max_caudal, 4, 2, value_str_buffer);
-  gModem.publishData(max_caudal_str, value_str_buffer);
-  dtostrf(min_caudal, 4, 2, value_str_buffer);
-  gModem.publishData(min_caudal_str, value_str_buffer);
-  dtostrf(sum_caudal, 4, 2, value_str_buffer);
-  gModem.publishData(sum_caudal_str, value_str_buffer);
+  char temperature_str[] = "Temperatura";
 
-  char max_level_str[] = "Max Level";
-  char min_level_str[] = "Min Level";
-  char sum_level_str[] = "Sum Level";
+  dtostrf((sum_temperature / measurement_count), 4, 2, value_str_buffer);
+  gModem.publishData(temperature_str, value_str_buffer);
 
-  dtostrf(max_level, 4, 2, value_str_buffer);
-  gModem.publishData(max_level_str, value_str_buffer);
-  dtostrf(min_level, 4, 2, value_str_buffer);
-  gModem.publishData(min_level_str, value_str_buffer);
-  dtostrf(sum_level, 4, 2, value_str_buffer);
-  gModem.publishData(sum_level_str, value_str_buffer);
-
-  char caudal_count[] = "Contador de pulsos del caudal";
-  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", caudalPulses);
-  gModem.publishData(caudal_count, value_str_buffer);
+  char speed_str[] = "Velocidad";
+  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", speed);
+  gModem.publishData(speed_str, value_str_buffer);
 
 }
 
@@ -331,32 +319,29 @@ void resetearEstadisticas() {
   SerialMon.println(F("Resetear Estadisticas"));
 
   for (int i = 0; i < orden_filtro; i++) {
-    buffer_sensor_caudal[i] = 0;
-    buffer_sensor_level[i] = 0;
+    buffer_sensor_temperature[i] = 0;
   }
 
-  max_caudal = -INFINITY;
-  min_caudal = INFINITY;
-  sum_caudal = 0.0;
+  sum_temperature = 0.0;
+  average_temperature = 0.0;
 
-  max_level = -INFINITY;
-  min_level = INFINITY;
-  sum_level = 0.0;
+  speedPulses = 0;
+  //speedPulseCounter = 0;
+  speed = 0.0;
 
-  contador_mediciones = 0;
+  accelerartionPulses = 0;
+  passengerPulses = 0;
 
-  caudalPulses = 0;
-  caudalPulseCounter = 0;
+  measurement_count = 0;
 }
 
 void resetearAlarmas() {
   SerialMon.println(F("Resetear Alarmas"));
 
-  flow_meter_disconnected_loop = false;
-  level_meter_disconnected_loop = false;
-  pump_off = false;
-  minimun_level_reached = false;
+  thermistor_disconnected_loop = false;
+  max_temperature_level_reached = false;
 
+  door_open = false;
 }
 
 // Función de setup
@@ -415,35 +400,32 @@ void loop() {
         // Leer sensores
         leerSensores();
 
-        // Aplicar filtros
-        if (orden_filtro == 1) {
-          filtered_value_caudal = aplicarFiltroOrden1(caudal, buffer_sensor_caudal[0]);
-          filtered_value_level = aplicarFiltroOrden1(level, buffer_sensor_level[0]);
-          buffer_sensor_caudal[0] = filtered_value_caudal;
-          buffer_sensor_level[0] = filtered_value_level;
-        } 
-        
-        if (orden_filtro == 5) {
-          filtered_value_caudal = aplicarMediaMovil(buffer_sensor_caudal, caudal);
-          filtered_value_level = aplicarMediaMovil(buffer_sensor_level, level);
+        verificarSensoresDesconetados();
+
+        if (!thermistor_disconnected_loop) {
+          // Aplicar filtros
+          if (orden_filtro == 1) {
+            filtered_value_temperature = aplicarFiltroOrden1(temperature, buffer_sensor_temperature[0]);
+            buffer_sensor_temperature[0] = filtered_value_temperature;
+          } 
+          
+          if (orden_filtro == 5) {
+            filtered_value_temperature = aplicarMediaMovil(buffer_sensor_temperature, temperature);
+          }
+
+          SerialMon.print(F("Valor filtrado del nivel del pozo: "));
+          SerialMon.println(filtered_value_temperature);
+
+          // Actualizar estadísticas
+          // Las estadisticas pueden verse impactadas por el valor filtrado... He adjuntado un pequeño documento al respecto
+          actualizarEstadisticas();
         }
-
-        SerialMon.print(F("Valor filtrado de caudal: "));
-        SerialMon.println(filtered_value_caudal);
-        SerialMon.print(F("Valor filtrado del nivel del pozo: "));
-        SerialMon.println(filtered_value_level);
-
-        // Actualizar estadísticas
-        // Las estadisticas pueden verse impactadas por el valor filtrado... He adjuntado un pequeño documento al respecto
-        actualizarEstadisticas();
 
         // Verificar alarmas
         verificarAlarmas();
 
         // Enviar alarmas si corresponde
         enviarAlarmas();
-        
-
 
     }
 
