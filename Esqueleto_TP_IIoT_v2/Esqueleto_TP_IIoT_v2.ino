@@ -3,6 +3,7 @@
 #include <RIC3D.h>
 #include <RIC3DMODEM.h>
 #include <TimerOne.h>
+#include <Arduino.h>
 
 // Definiciones de pines y variables globales
 #define EMA_FILTER_WEIGTH   0.5 //un numero entre 0 a 1
@@ -60,12 +61,18 @@ unsigned long accelerartionPulses = 0;
 unsigned long passengerPulses = 0;
 
 float speed = 0.0;
+float confort = 0.0;
+float occupation_porcentage = 0.0;
 
 // Variables para gestión de alarmas y errores
 bool thermistor_disconnected_loop = false;
 bool max_temperature_level_reached = false;
 
 bool door_open = false;
+
+bool puerta_abierta_en_movimiento = false;
+
+bool sobrecarga = false;
 // Añadir más flags según sea necesario
 
 // Temporizadores
@@ -243,6 +250,12 @@ void actualizarEstadisticas() {
 
   //TODO calculate speed based on pulses
   //speed = speed_pulses ...
+
+  average_temperature = sum_temperature / measurement_count;
+
+  confort = max(1, min(10, (10 - 0.4 * abs(average_temperature - 24) - accelerartionPulses)));
+
+  occupation_porcentage = (passengerPulses / BUS_MAX_CAPACITY) * 100;
 }
 
 void verificarSensoresDesconetados() {
@@ -266,6 +279,14 @@ void verificarAlarmas() {
   if (doors_state == LOW) {
     door_open = true;
   }
+
+  if (door_open && speed > 10) {
+    puerta_abierta_en_movimiento = true;
+  }
+
+  if (passengerPulses > BUS_MAX_CAPACITY * 0.9) {
+    sobrecarga = true;
+  }
 }
 
 void enviarAlarmas() {
@@ -287,6 +308,14 @@ void enviarAlarmas() {
     gModem.publishData("puerta_abierta", "true");
   }
 
+  if (puerta_abierta_en_movimiento) {
+    gModem.publishData("puerta_abierta_en_movimiento", "true");
+  }
+
+  if (sobrecarga) {
+    gModem.publishData("sobrecarga", "true");
+  }
+
 
   resetearAlarmas();
 }
@@ -305,13 +334,20 @@ void enviarReporte() {
   // this can be used for safer stuff: snprintf(value_str_buffer, "%4.2f")
 
   char temperature_str[] = "Temperatura";
-
-  dtostrf((sum_temperature / measurement_count), 4, 2, value_str_buffer);
+  dtostrf(average_temperature, 4, 2, value_str_buffer);
   gModem.publishData(temperature_str, value_str_buffer);
 
   char speed_str[] = "Velocidad";
-  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", speed);
+  dtostrf(speed, 4, 2, value_str_buffer);
   gModem.publishData(speed_str, value_str_buffer);
+
+  char passenger_str[] = "Cant pasajeros";
+  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", passengerPulses);
+  gModem.publishData(passenger_str, value_str_buffer);
+
+  char confort_str[] = "Confort";
+  dtostrf(confort, 4, 2, value_str_buffer);
+  gModem.publishData(confort_str, value_str_buffer);
 
 }
 
@@ -330,7 +366,8 @@ void resetearEstadisticas() {
   speed = 0.0;
 
   accelerartionPulses = 0;
-  passengerPulses = 0;
+
+  confort = 0.0;
 
   measurement_count = 0;
 }
@@ -342,6 +379,9 @@ void resetearAlarmas() {
   max_temperature_level_reached = false;
 
   door_open = false;
+
+  puerta_abierta_en_movimiento = false;
+  sobrecarga = false;
 }
 
 // Función de setup
