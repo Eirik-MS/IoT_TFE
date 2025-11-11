@@ -5,6 +5,8 @@
 #include <TimerOne.h>
 #include <Arduino.h>
 
+#include "pwm_speed.h"
+
 // Definiciones de pines y variables globales
 #define EMA_FILTER_WEIGTH   0.5 //un numero entre 0 a 1
 #define ORDER_FILTER 5
@@ -384,6 +386,8 @@ void resetearAlarmas() {
   sobrecarga = false;
 }
 
+
+
 // Función de setup
 void setup() {
 
@@ -392,9 +396,13 @@ void setup() {
   pinMode(DI1, INPUT_PULLUP);
   pinMode(DI2, INPUT_PULLUP);    
   pinMode(DI3, INPUT_PULLUP);
+  pinMode(DI4, INPUT_PULLUP); //PWM
+
   pinMode(LED1, OUTPUT);
   pinMode(LED2, OUTPUT);
   pinMode(LED3, OUTPUT);
+
+
 
   SerialMon.println(F("Inicializar comunicación serial para depuración"));
     // Inicializar comunicación serial para depuración
@@ -432,6 +440,16 @@ void setup() {
 void loop() {
     // Mantener la conexión MQTT
     // Reconectar si es necesario
+    WaveStats pwm_data;
+    pwm_data.duty_percent = 0;
+    pwm_data.frequency_hz = 0;
+    pwm_data.valid = false;
+
+    Motion speed_accs_data;
+    speed_accs_data.accs = 0;
+    speed_accs_data.speed = 0;
+
+
 
     // Tomar lecturas periódicas
     if (millis() - tiempo_medicion >= intervalo_medicion) {
@@ -439,6 +457,11 @@ void loop() {
 
         // Leer sensores
         leerSensores();
+
+        pwm_data = measureWave(DI4);
+
+        speed_accs_data = waveToMotion(pwm_data);
+        //SerialMon.printf("speed: %f | accs: %f", speed_accs_data.speed, speed_accs_data.accs);
 
         verificarSensoresDesconetados();
 
