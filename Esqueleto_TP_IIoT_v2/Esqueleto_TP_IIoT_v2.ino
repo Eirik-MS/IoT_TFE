@@ -101,13 +101,13 @@ volatile uint32_t passengerDownCounter = 0;
 
 //-------------------------------------
 void timer1ISR(void) {
-  uint8_t di0 = digitalRead(DI0);
+  /*uint8_t di0 = digitalRead(DI0);
   if (di0 != lastDI0) {
     lastDI0 = di0;
     if (di0 == HIGH) {
       speedPulseCounter++;
     }
-  }
+  }*/
 
   uint8_t di3 = digitalRead(DI3);
   if (di3 != lastDI3) {
@@ -458,10 +458,13 @@ void loop() {
         // Leer sensores
         leerSensores();
 
-        pwm_data = measureWave(DI4);
+        pwm_data = measureWave(DI0);
 
         speed_accs_data = waveToMotion(pwm_data);
-        //SerialMon.printf("speed: %f | accs: %f", speed_accs_data.speed, speed_accs_data.accs);
+        SerialMon.print("speed: ");
+        SerialMon.println(speed_accs_data.speed);
+        SerialMon.print("Accs: ");
+        SerialMon.println(speed_accs_data.accs);
 
         verificarSensoresDesconetados();
 

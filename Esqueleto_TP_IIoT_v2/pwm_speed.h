@@ -35,7 +35,7 @@ WaveStats readWave();
 
 
 //**************************************************//
-Motion waveToMotion(const WaveStats& w, float speedScale = 0.05f, float accelMaxG  = 4.0f);
+Motion waveToMotion(const WaveStats& w, float speedScale = 0.5f, float accelMaxG  = 4.0f);
 
 
 
