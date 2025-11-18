@@ -1,0 +1,3 @@
+void modemSetup();
+
+int modemInit();

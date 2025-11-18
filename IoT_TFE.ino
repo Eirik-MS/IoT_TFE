@@ -5,6 +5,8 @@
 #include <TimerOne.h>
 #include <Arduino.h>
 
+#include "modem.h"
+#include "utility.h"
 #include "pwm_speed.h"
 
 // Definiciones de pines y variables globales
@@ -18,8 +20,6 @@
 #define BUS_MAX_CAPACITY 50
 
 RIC3DMODEM gModem;
-
-
 
 // Configuración del módem (ajustar según el hardware y proveedor)
 const char apn[]      = "grupotesacom.claro.com.ar";
@@ -58,11 +58,8 @@ int measurement_count = 0;
 
 float average_temperature = 0.0;
 
-unsigned long speedPulses = 0;
-unsigned long accelerartionPulses = 0;
 unsigned long passengerPulses = 0;
 
-float speed = 0.0;
 float confort = 0.0;
 float occupation_porcentage = 0.0;
 
@@ -88,10 +85,8 @@ const unsigned long intervalo_reporte = 10000; // Intervalo para reportes (10 se
 volatile long lastLedBlink = 0;
 
 volatile uint8_t lastDI0 = LOW;
-volatile uint32_t speedPulseCounter = 0;
 
 volatile uint8_t lastDI3 = LOW;
-volatile uint32_t accelerationCounter = 0;
 
 volatile uint8_t lastDI4 = LOW;
 volatile uint32_t passengerUpCounter = 0;
@@ -100,45 +95,10 @@ volatile uint8_t lastDI5 = LOW;
 volatile uint32_t passengerDownCounter = 0;
 
 //-------------------------------------
-void timer1ISR(void) {
-  /*uint8_t di0 = digitalRead(DI0);
-  if (di0 != lastDI0) {
-    lastDI0 = di0;
-    if (di0 == HIGH) {
-      speedPulseCounter++;
-    }
-  }*/
+WaveStats pwm_data = {0.0f, 0.0f, false};
 
-  uint8_t di3 = digitalRead(DI3);
-  if (di3 != lastDI3) {
-    lastDI3 = di3;
-    if (di3 == HIGH) {
-      accelerationCounter++;
-    }
-  }
+Motion speed_accs_data = {0.0f, 0.0f};
 
-  uint8_t di4 = digitalRead(DI4);
-  if (di4 != lastDI3) {
-    lastDI4 = di4;
-    if (di4 == HIGH) {
-      passengerUpCounter++;
-    }
-  }
-
-  uint8_t di5 = digitalRead(DI5);
-  if (di5 != lastDI5) {
-    lastDI5 = di5;
-    if (di5 == HIGH) {
-      passengerDownCounter++;
-    }
-  }
-    //led blink
-  if (millis() - lastLedBlink > 1000) {
-    lastLedBlink = millis();
-    digitalWrite(LED1, !digitalRead(LED1));
-    SerialMon.println(F("Blink LED1"));
-  }
-}
 
 //-------------------------------------
 void modemSetup(){
@@ -169,54 +129,6 @@ int modemInit(){
   return result;
 }
 
-
-// Funciones para lectura de sensores
-void leerSensores() {
-  SerialMon.println(F("Lectura de Sensores"));
-    // Leer los valores de los sensores conectados
-    // Por ejemplo:
-    // sensor1_valor = analogRead(PIN_SENSOR1);
-    // Realizar conversión de unidades si es necesario
-
-  temperature = analogRead(AI0) / 40.0;
-  doors_state = digitalRead(DI2);
-
-  SerialMon.print(F("Midiendo estado de las puertas: "));
-  SerialMon.println(doors_state);
-
-  SerialMon.print(F("Midiendo temperatura: "));
-  SerialMon.println(temperature);
-    
-  //noInterrupts();
-  speedPulses += speedPulseCounter;
-  speedPulseCounter = 0;
-  //interrupts();
-
-  SerialMon.print(F("Midiendo pulsos de velocidad: "));
-  SerialMon.println(speedPulses);
-
-  accelerartionPulses += accelerationCounter;
-  accelerationCounter = 0;
-
-  SerialMon.print(F("Midiendo pulsos de aceleración: "));
-  SerialMon.println(accelerartionPulses);
-
-  passengerPulses += passengerUpCounter;
-  passengerUpCounter = 0;
-
-  SerialMon.print(F("Midiendo pulsos de subida de pasajeros: "));
-  SerialMon.println(passengerPulses);
-
-  passengerPulses = passengerPulses < passengerDownCounter ? 0 : passengerPulses - passengerDownCounter;
-  passengerDownCounter = 0;
-
-  SerialMon.print(F("Midiendo pulsos de bajada de pasajeros: "));
-  SerialMon.println(passengerPulses);
-
-
-  measurement_count++;
-}
-
 // Funciones para aplicar filtros
 float aplicarFiltroOrden1(float valor_actual, float valor_anterior) {
     SerialMon.println(F("Usar filtro de Primer Orden"));
@@ -242,6 +154,68 @@ float aplicarMediaMovil(float* buffer, float nuevo_valor) {
     return sum / cant;
 }
 
+
+//-------------------------------------
+void timer1ISR(void) {
+
+  uint8_t di4 = digitalRead(DI4);
+  if (di4 != lastDI3) {
+    lastDI4 = di4;
+    if (di4 == HIGH) {
+      passengerUpCounter = 1;
+    }
+  }
+
+  uint8_t di5 = digitalRead(DI5);
+  if (di5 != lastDI5) {
+    lastDI5 = di5;
+    if (di5 == HIGH) {
+      passengerDownCounter = 1;
+    }
+  }
+    //led blink
+  if (millis() - lastLedBlink > 1000) {
+    lastLedBlink = millis();
+    digitalWrite(LED1, !digitalRead(LED1));
+    SerialMon.println(F("Blink LED1"));
+  }
+}
+
+
+// Funciones para lectura de sensores
+void leerSensores() {
+  SerialMon.println(F("Lectura de Sensores"));
+    // Leer los valores de los sensores conectados
+    // Por ejemplo:
+    // sensor1_valor = analogRead(PIN_SENSOR1);
+    // Realizar conversión de unidades si es necesario
+
+  temperature = analogRead(AI0) / 40.0;
+  doors_state = digitalRead(DI2);
+
+  SerialMon.print(F("Midiendo estado de las puertas: "));
+  SerialMon.println(doors_state);
+
+  SerialMon.print(F("Midiendo temperatura: "));
+  SerialMon.println(temperature);
+
+  passengerPulses += passengerUpCounter;
+  passengerUpCounter = 0;
+
+  SerialMon.print(F("Midiendo pulsos de subida de pasajeros: "));
+  SerialMon.println(passengerPulses);
+
+  passengerPulses = passengerPulses < passengerDownCounter ? 0 : passengerPulses - passengerDownCounter;
+  passengerDownCounter = 0;
+
+  SerialMon.print(F("Midiendo pulsos de bajada de pasajeros: "));
+  SerialMon.println(passengerPulses);
+
+
+  measurement_count++;
+}
+
+
 // Funciones para actualizar estadísticas
 void actualizarEstadisticas() {
   SerialMon.println(F("Actualizar Estadistica"));
@@ -255,7 +229,7 @@ void actualizarEstadisticas() {
 
   average_temperature = sum_temperature / measurement_count;
 
-  confort = max(1, min(10, (10 - 0.4 * abs(average_temperature - 24) - accelerartionPulses)));
+  confort = max(1, min(10, (10 - 0.4 * abs(average_temperature - 24) - speed_accs_data.accs)));
 
   occupation_porcentage = (passengerPulses / BUS_MAX_CAPACITY) * 100;
 }
@@ -282,7 +256,7 @@ void verificarAlarmas() {
     door_open = true;
   }
 
-  if (door_open && speed > 10) {
+  if (door_open && speed_accs_data.speed > 5) {
     puerta_abierta_en_movimiento = true;
   }
 
@@ -340,7 +314,7 @@ void enviarReporte() {
   gModem.publishData(temperature_str, value_str_buffer);
 
   char speed_str[] = "Velocidad";
-  dtostrf(speed, 4, 2, value_str_buffer);
+  dtostrf(speed_accs_data.speed, 4, 2, value_str_buffer);
   gModem.publishData(speed_str, value_str_buffer);
 
   char passenger_str[] = "Cant pasajeros";
@@ -350,6 +324,12 @@ void enviarReporte() {
   char confort_str[] = "Confort";
   dtostrf(confort, 4, 2, value_str_buffer);
   gModem.publishData(confort_str, value_str_buffer);
+
+  char accs_str[] = "Acceleracion";
+  dtostrf(speed_accs_data.accs, 4, 2, value_str_buffer);
+  gModem.publishData(accs_str, value_str_buffer);
+
+
 
 }
 
@@ -362,12 +342,6 @@ void resetearEstadisticas() {
 
   sum_temperature = 0.0;
   average_temperature = 0.0;
-
-  speedPulses = 0;
-  //speedPulseCounter = 0;
-  speed = 0.0;
-
-  accelerartionPulses = 0;
 
   confort = 0.0;
 
@@ -392,11 +366,11 @@ void resetearAlarmas() {
 void setup() {
 
   delay(100);
-  pinMode(DI0, INPUT_PULLUP);
+  pinMode(DI0, INPUT_PULLUP); //PWM - speed + accs
   pinMode(DI1, INPUT_PULLUP);
-  pinMode(DI2, INPUT_PULLUP);    
+  pinMode(DI2, INPUT_PULLUP); //Door State   
   pinMode(DI3, INPUT_PULLUP);
-  pinMode(DI4, INPUT_PULLUP); //PWM
+  pinMode(DI4, INPUT_PULLUP); 
 
   pinMode(LED1, OUTPUT);
   pinMode(LED2, OUTPUT);
@@ -412,7 +386,7 @@ void setup() {
     // pinMode(PIN_SENSOR1, INPUT);
     // Añadir configuración de pines según sea necesario
 
-  //módem
+  //módem Setup and init
   modemSetup();
   int result;
   while (result = modemInit()){
@@ -440,23 +414,13 @@ void setup() {
 void loop() {
     // Mantener la conexión MQTT
     // Reconectar si es necesario
-    WaveStats pwm_data;
-    pwm_data.duty_percent = 0;
-    pwm_data.frequency_hz = 0;
-    pwm_data.valid = false;
-
-    Motion speed_accs_data;
-    speed_accs_data.accs = 0;
-    speed_accs_data.speed = 0;
-
-
 
     // Tomar lecturas periódicas
     if (millis() - tiempo_medicion >= intervalo_medicion) {
         tiempo_medicion = millis();
 
         // Leer sensores
-        leerSensores();
+        //leerSensores();
 
         pwm_data = measureWave(DI0);
 
