@@ -12,7 +12,7 @@
 
 RIC3DMODEM gModem;
 
-float temperature = 0.0;
+float temperature_mA = 0.0;
 // Añadir más variables según los sensores utilizados
 
 // Variables para filtros y estadísticas
@@ -33,6 +33,7 @@ unsigned long passangerOccupation = 0;
 
 float confort = 0.0;
 float occupation_porcentage = 0.0;
+int totalPassangers = 0;
 
 // Variables para gestión de alarmas y errores
 bool thermistor_disconnected_loop = false;
@@ -103,10 +104,17 @@ void leerSensores() {
     // sensor1_valor = analogRead(PIN_SENSOR1);
     // Realizar conversión de unidades si es necesario
 
-  temperature = analogRead(AI0) / 30.0;
+  temperature_mA = analogRead(AI0) / 40.0;
   door_state = digitalRead(DI2);
   pwm_data = measureWave(DI0);
   speed_accs_data = waveToMotion(pwm_data);
+
+  //Check if temperature sensor is connected
+  if (temperature_mA < 4){
+    thermistor_disconnected_loop = true;
+  } else {
+    thermistor_disconnected_loop = false;
+  }
 
   SerialMon.print("speed: ");
   SerialMon.println(speed_accs_data.speed);
@@ -117,7 +125,9 @@ void leerSensores() {
   SerialMon.println(door_state);
 
   SerialMon.print(F("Midiendo temperatura: "));
-  SerialMon.println(temperature);
+  SerialMon.println(temperature_mA);
+
+  totalPassangers += passengerUpCounter;
 
   passangerOccupation += passengerUpCounter;
   passengerUpCounter = 0;
@@ -146,20 +156,12 @@ void actualizarEstadisticas() {
 
   average_temperature = sum_temperature / measurement_count;
 
-+ // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
-+ // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
-+ // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
-+ confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - 24) - abs(speed_accs_data.accs))));
+  // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
+  // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
+  // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
+  confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - 24) - abs(speed_accs_data.accs))));
 
   occupation_porcentage = (passangerOccupation / BUS_MAX_CAPACITY) * 100;
-}
-
-void verificarSensoresDesconetados() {
-  SerialMon.println(F("Verificar sensores conectados"));
-
-  if (temperature < 4.0) {
-    thermistor_disconnected_loop = true;
-  } 
 }
 
 // Funciones para detección de alarmas y errores
@@ -167,13 +169,16 @@ void verificarAlarmas() {
   SerialMon.println(F("Verificar Alarmas"));
     // Verificar si los valores de los sensores superan umbrales definidos
     // Actualizar los flags de alarma correspondientemente
+    //(filtered_value_temperature - 4.0) * 100.0 / 16.0) - 20 >= MAXIMUM_TEMPERATURE
 
-  if(((filtered_value_temperature - 4.0) * 100.0 / 16.0) - 20 >= MAXIMUM_TEMPERATURE) {
+  if(filtered_value_temperature > MAXIMUM_TEMPERATURE) {
     max_temperature_level_reached = true;
+  } else {
+    max_temperature_level_reached = false;
   }
 
 
-  if (!door_state && speed_accs_data.speed > 5) {
+  if (!door_state && (speed_accs_data.speed > MAX_SPEED_WITH_DOOR_OPEN)) {
     puerta_abierta_en_movimiento = true;
   }
 
@@ -252,6 +257,10 @@ void enviarReporte() {
   char occupation_percentage_str[] = "Porcentaje ocupacion";
   snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", occupation_porcentage);
   gModem.publishData(occupation_percentage_str, value_str_buffer);
+
+  char totalPassangers_str[] = "Total passangers";
+  dtostrf(totalPassangers, 4, 2, value_str_buffer);
+  gModem.publishData(totalPassangers_str, value_str_buffer);
 
   char confort_str[] = "Confort";
   dtostrf(confort, 4, 2, value_str_buffer);
@@ -348,17 +357,19 @@ void loop() {
         // Leer sensores
         leerSensores();
 
-        verificarSensoresDesconetados();
+        //verificarSensoresDesconetados();
 
         if (!thermistor_disconnected_loop) {
           // Aplicar filtros
+          float temperature_C = mA_to_temp(temperature_mA);
+
           if (orden_filtro == 1) {
-            filtered_value_temperature = aplicarFiltroOrden1(temperature, buffer_sensor_temperature[0]);
+            filtered_value_temperature = aplicarFiltroOrden1(temperature_C, buffer_sensor_temperature[0]);
             buffer_sensor_temperature[0] = filtered_value_temperature;
           } 
           
           if (orden_filtro == 5) {
-            filtered_value_temperature = aplicarMediaMovil(buffer_sensor_temperature, temperature);
+            filtered_value_temperature = aplicarMediaMovil(buffer_sensor_temperature, temperature_C);
           }
 
           SerialMon.print(F("Valor filtrado del nivel del pozo: "));
@@ -389,5 +400,6 @@ void loop() {
     }
 
     // Otras tareas si es necesario
-    // Manejo de eventos, comunicación, etc.
+    // Manejo de eventos, comunicación, etc.'
+    delay(100);
 }

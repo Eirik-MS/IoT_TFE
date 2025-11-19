@@ -27,3 +27,7 @@ float aplicarMediaMovil(float* buffer, float nuevo_valor) {
 
     return sum / cant;
 }
+
+float mA_to_temp(float mA){
+    return 5*(mA-4) - 20;
+}

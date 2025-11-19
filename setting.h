@@ -10,7 +10,7 @@
 #define SerialBAUD 115200
 
 #define MAXIMUM_TEMPERATURE 29.0
-
+#define MAX_SPEED_WITH_DOOR_OPEN 5
 #define BUS_MAX_CAPACITY 50
 
 extern RIC3DMODEM gModem;
