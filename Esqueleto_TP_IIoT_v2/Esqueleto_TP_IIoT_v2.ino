@@ -16,6 +16,7 @@
 #define MAXIMUM_TEMPERATURE 29.0
 
 #define BUS_MAX_CAPACITY 50
+#define ACCELERATION_TRESHOLD 3.0
 
 RIC3DMODEM gModem;
 
@@ -263,7 +264,7 @@ void actualizarEstadisticas() {
 void verificarSensoresDesconetados() {
   SerialMon.println(F("Verificar sensores conectados"));
 
-  if (filtered_value_temperature < 4.0) {
+  if (temperature < 4.0) {
     thermistor_disconnected_loop = true;
   } 
 }
