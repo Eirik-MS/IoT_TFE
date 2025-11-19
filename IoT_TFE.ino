@@ -28,8 +28,8 @@ const char apnPassword[] = "";
 
 const char mqttHost[]   = "10.25.1.152";          // host de tdata
 const int mqttPort = 4098;                        // puerto
-const char mqttUser[]   = "jlesbkyytj8o88boeank"; // aca se debe poner el token del device de tdata // aa1f3770-8dcd-11f0-810b-393772542f99
-const char *mqttPassword = NULL; //1ywx579ruc54pp3ch33v
+const char mqttUser[]   = "8YVlOfVANIaKQ961f6k8"; // aca se debe poner el token del device de tdata // aa1f3770-8dcd-11f0-810b-393772542f99
+const char *mqttPassword = NULL; //8YVlOfVANIaKQ961f6k8
 
 // Module baud rate
 uint32_t rate = 115200;
@@ -190,7 +190,7 @@ void leerSensores() {
     // sensor1_valor = analogRead(PIN_SENSOR1);
     // Realizar conversión de unidades si es necesario
 
-  temperature = analogRead(AI0) / 40.0;
+  temperature = analogRead(AI0) / 30.0;
   doors_state = digitalRead(DI2);
 
   SerialMon.print(F("Midiendo estado de las puertas: "));
@@ -229,7 +229,7 @@ void actualizarEstadisticas() {
 
   average_temperature = sum_temperature / measurement_count;
 
-  confort = max(1, min(10, (10 - 0.4 * abs(average_temperature - 24) - speed_accs_data.accs)));
+  confort = max(1, min(10, (10 - 0.4 * abs(filtered_value_temperature - 24) - speed_accs_data.accs)));
 
   occupation_porcentage = (passengerPulses / BUS_MAX_CAPACITY) * 100;
 }
@@ -237,7 +237,7 @@ void actualizarEstadisticas() {
 void verificarSensoresDesconetados() {
   SerialMon.println(F("Verificar sensores conectados"));
 
-  if (filtered_value_temperature < 4.0) {
+  if (temperature < 4.0) {
     thermistor_disconnected_loop = true;
   } 
 }
@@ -310,8 +310,10 @@ void enviarReporte() {
   // this can be used for safer stuff: snprintf(value_str_buffer, "%4.2f")
 
   char temperature_str[] = "Temperatura";
-  dtostrf(average_temperature, 4, 2, value_str_buffer);
+  dtostrf(filtered_value_temperature, 4, 2, value_str_buffer);
   gModem.publishData(temperature_str, value_str_buffer);
+  SerialMon.print("Temperature sent as data:");
+  SerialMon.println(average_temperature);
 
   char speed_str[] = "Velocidad";
   dtostrf(speed_accs_data.speed, 4, 2, value_str_buffer);
@@ -420,7 +422,7 @@ void loop() {
         tiempo_medicion = millis();
 
         // Leer sensores
-        //leerSensores();
+        leerSensores();
 
         pwm_data = measureWave(DI0);
 
