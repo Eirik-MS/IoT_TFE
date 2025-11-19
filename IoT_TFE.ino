@@ -144,12 +144,12 @@ void actualizarEstadisticas() {
 
   sum_temperature += filtered_value_temperature;
 
-  //TODO calculate speed based on pulses
-  //speed = speed_pulses ...
-
   average_temperature = sum_temperature / measurement_count;
 
-  confort = max(1, min(10, (10 - 0.4 * abs(filtered_value_temperature - 24) - speed_accs_data.accs)));
++ // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
++ // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
++ // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
++ confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - 24) - abs(speed_accs_data.accs))));
 
   occupation_porcentage = (passangerOccupation / BUS_MAX_CAPACITY) * 100;
 }
@@ -249,16 +249,17 @@ void enviarReporte() {
   snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", passangerOccupation);
   gModem.publishData(passenger_str, value_str_buffer);
 
+  char occupation_percentage_str[] = "Porcentaje ocupacion";
+  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", occupation_porcentage);
+  gModem.publishData(occupation_percentage_str, value_str_buffer);
+
   char confort_str[] = "Confort";
   dtostrf(confort, 4, 2, value_str_buffer);
   gModem.publishData(confort_str, value_str_buffer);
 
-  char accs_str[] = "Acceleracion";
+  char accs_str[] = "Aceleracion";
   dtostrf(speed_accs_data.accs, 4, 2, value_str_buffer);
   gModem.publishData(accs_str, value_str_buffer);
-
-
-
 }
 
 void resetearEstadisticas() {
