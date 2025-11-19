@@ -84,14 +84,11 @@ const unsigned long intervalo_reporte = 10000; // Intervalo para reportes (10 se
 //-------------------------------------
 volatile long lastLedBlink = 0;
 
-volatile uint8_t lastDI0 = LOW;
-
+volatile uint8_t lastDI1 = LOW;
+volatile uint8_t lastDI2 = LOW;
 volatile uint8_t lastDI3 = LOW;
-
-volatile uint8_t lastDI4 = LOW;
 volatile uint32_t passengerUpCounter = 0;
 
-volatile uint8_t lastDI5 = LOW;
 volatile uint32_t passengerDownCounter = 0;
 
 //-------------------------------------
@@ -158,20 +155,20 @@ float aplicarMediaMovil(float* buffer, float nuevo_valor) {
 //-------------------------------------
 void timer1ISR(void) {
 
-  uint8_t di4 = digitalRead(DI4);
-  if (di4 != lastDI3) {
-    lastDI4 = di4;
-    if (di4 == HIGH) {
-      passengerUpCounter = 1;
+uint8_t di1 = digitalRead(DI1);
+  if (di1 != lastDI1) {                     // state changed?
+    if (lastDI1 == HIGH && di1 == LOW) {    // falling edge
+      passengerUpCounter++;                 // one more passenger up
     }
+    lastDI1 = di1;
   }
 
-  uint8_t di5 = digitalRead(DI5);
-  if (di5 != lastDI5) {
-    lastDI5 = di5;
-    if (di5 == HIGH) {
-      passengerDownCounter = 1;
+  uint8_t di3 = digitalRead(DI3);
+  if (di3 != lastDI3) {                     // state changed?
+    if (lastDI3 == HIGH && di3 == LOW) {    // falling edge
+      passengerDownCounter++;               // one more passenger down
     }
+    lastDI3 = di3;
   }
     //led blink
   if (millis() - lastLedBlink > 1000) {
@@ -369,10 +366,9 @@ void setup() {
 
   delay(100);
   pinMode(DI0, INPUT_PULLUP); //PWM - speed + accs
-  pinMode(DI1, INPUT_PULLUP);
+  pinMode(DI1, INPUT_PULLUP); //Passanger up
   pinMode(DI2, INPUT_PULLUP); //Door State   
-  pinMode(DI3, INPUT_PULLUP);
-  pinMode(DI4, INPUT_PULLUP); 
+  pinMode(DI3, INPUT_PULLUP); //Passanger Down
 
   pinMode(LED1, OUTPUT);
   pinMode(LED2, OUTPUT);
