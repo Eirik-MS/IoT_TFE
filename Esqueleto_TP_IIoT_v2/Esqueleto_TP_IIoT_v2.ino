@@ -369,9 +369,6 @@ void resetearEstadisticas() {
   speed = 0.0;
 
   accelerartionPulses = 0;
-
-  confort = 0.0;
-
   measurement_count = 0;
 }
 
@@ -474,9 +471,7 @@ void loop() {
           if (orden_filtro == 1) {
             filtered_value_temperature = aplicarFiltroOrden1(temperature, buffer_sensor_temperature[0]);
             buffer_sensor_temperature[0] = filtered_value_temperature;
-          } 
-          
-          if (orden_filtro == 5) {
+          } else if (orden_filtro == 5) {
             filtered_value_temperature = aplicarMediaMovil(buffer_sensor_temperature, temperature);
           }
 
