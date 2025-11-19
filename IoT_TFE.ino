@@ -12,10 +12,6 @@
 
 RIC3DMODEM gModem;
 
-// Variables para sensores
-
-uint8_t doors_state = LOW;
-
 float temperature = 0.0;
 // Añadir más variables según los sensores utilizados
 
@@ -42,8 +38,6 @@ float occupation_porcentage = 0.0;
 bool thermistor_disconnected_loop = false;
 bool max_temperature_level_reached = false;
 
-bool door_open = false;
-
 bool puerta_abierta_en_movimiento = false;
 
 bool sobrecarga = false;
@@ -59,11 +53,12 @@ const unsigned long intervalo_reporte = 10000; // Intervalo para reportes (10 se
 //-------------------------------------
 volatile long lastLedBlink = 0;
 
+//Door state HIGH = CLosed/safe | LOW = open/unsafe
+volatile uint8_t door_state = HIGH;
 volatile uint8_t lastDI1 = LOW;
 volatile uint8_t lastDI2 = LOW;
 volatile uint8_t lastDI3 = LOW;
 volatile uint32_t passengerUpCounter = 0;
-
 volatile uint32_t passengerDownCounter = 0;
 
 //-------------------------------------
@@ -109,10 +104,17 @@ void leerSensores() {
     // Realizar conversión de unidades si es necesario
 
   temperature = analogRead(AI0) / 30.0;
-  doors_state = digitalRead(DI2);
+  door_state = digitalRead(DI2);
+  pwm_data = measureWave(DI0);
+  speed_accs_data = waveToMotion(pwm_data);
+
+  SerialMon.print("speed: ");
+  SerialMon.println(speed_accs_data.speed);
+  SerialMon.print("Accs: ");
+  SerialMon.println(speed_accs_data.accs);
 
   SerialMon.print(F("Midiendo estado de las puertas: "));
-  SerialMon.println(doors_state);
+  SerialMon.println(door_state);
 
   SerialMon.print(F("Midiendo temperatura: "));
   SerialMon.println(temperature);
@@ -170,11 +172,8 @@ void verificarAlarmas() {
     max_temperature_level_reached = true;
   }
 
-  if (doors_state == LOW) {
-    door_open = true;
-  }
 
-  if (door_open && speed_accs_data.speed > 5) {
+  if (!door_state && speed_accs_data.speed > 5) {
     puerta_abierta_en_movimiento = true;
   }
 
@@ -188,26 +187,35 @@ void enviarAlarmas() {
     // Enviar alarmas al broker MQTT si se han detectado
     // Utilizar gmodem.PublishData() o la función correspondiente
 
-  char payload[32];
-
   if (thermistor_disconnected_loop) {
     gModem.publishData("termistor_desconectado", "true");
+  } else {
+    gModem.publishData("termistor_desconectado", "false");
   }
 
   if (max_temperature_level_reached) {
     gModem.publishData("temperatura_maxima", "true");
+  } else {
+    gModem.publishData("temperatura_maxima", "false");
+
   }
   
-  if (door_open) {
+  if (door_state) {
+    gModem.publishData("puerta_abierta", "false");
+  } else {
     gModem.publishData("puerta_abierta", "true");
   }
 
   if (puerta_abierta_en_movimiento) {
     gModem.publishData("puerta_abierta_en_movimiento", "true");
+  } else {
+    gModem.publishData("puerta_abierta_en_movimiento", "false");
   }
 
   if (sobrecarga) {
     gModem.publishData("sobrecarga", "true");
+  } else {
+    gModem.publishData("sobrecarga", "false");
   }
 
 
@@ -274,8 +282,6 @@ void resetearAlarmas() {
   thermistor_disconnected_loop = false;
   max_temperature_level_reached = false;
 
-  door_open = false;
-
   puerta_abierta_en_movimiento = false;
   sobrecarga = false;
 }
@@ -299,7 +305,7 @@ void setup() {
 
   SerialMon.println(F("Inicializar comunicación serial para depuración"));
     // Inicializar comunicación serial para depuración
-    SerialMon.begin(115200);
+    SerialMon.begin(SerialBAUD);
 
     // Configurar pines de entrada para sensores
     // pinMode(PIN_SENSOR1, INPUT);
@@ -340,14 +346,6 @@ void loop() {
 
         // Leer sensores
         leerSensores();
-
-        pwm_data = measureWave(DI0);
-
-        speed_accs_data = waveToMotion(pwm_data);
-        SerialMon.print("speed: ");
-        SerialMon.println(speed_accs_data.speed);
-        SerialMon.print("Accs: ");
-        SerialMon.println(speed_accs_data.accs);
 
         verificarSensoresDesconetados();
 
