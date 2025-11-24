@@ -16,6 +16,7 @@
 #define SerialAT Serial3     // Comunicación con el módem 4G
 
 #define MAXIMUM_TEMPERATURE 29.0
+#define IDEAL_TEMPERATURE 24.0
 #define BUS_MAX_CAPACITY 50
 
 RIC3DMODEM gModem;
@@ -53,9 +54,13 @@ float filtered_value_temperature = 0.0;
 
 float sum_temperature = 0.0;
 
+float sum_acceleration = 0.0;
+
 int measurement_count = 0;
 
 float average_temperature = 0.0;
+
+float average_acceleration = 0.0;
 
 unsigned long passengerPulses = 0;
 
@@ -220,12 +225,7 @@ void actualizarEstadisticas() {
 
   sum_temperature += filtered_value_temperature;
 
-  average_temperature = sum_temperature / measurement_count;
-
-+ // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
-+ // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
-+ // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
-+ confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - 24) - abs(speed_accs_data.accs))));
+  sum_acceleration += abs(speed_accs_data.accs);
 
   occupation_porcentage = (passengerPulses / BUS_MAX_CAPACITY) * 100;
 }
@@ -298,7 +298,15 @@ void enviarReporte() {
     // Calcular promedios
     // Enviar máximos, mínimos y promedios al broker MQTT
 
-    //cudal pulses
+  average_temperature = sum_temperature / measurement_count;
+
+  average_acceleration = sum_acceleration / measurement_count;
+
++ // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
++ // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
++ // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
++ confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - IDEAL_TEMPERATURE) - average_acceleration)));
+
   
   //Have this long for large amounts of data, 
   char value_str_buffer[32];
@@ -340,7 +348,10 @@ void resetearEstadisticas() {
   }
 
   sum_temperature = 0.0;
+  sum_acceleration = 0.0;
+  
   average_temperature = 0.0;
+  average_acceleration = 0.0;
 
   confort = 0.0;
 
