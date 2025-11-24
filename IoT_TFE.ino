@@ -8,40 +8,11 @@
 #include "modem.h"
 #include "utility.h"
 #include "pwm_speed.h"
-
-// Definiciones de pines y variables globales
-#define EMA_FILTER_WEIGTH   0.5 //un numero entre 0 a 1
-#define ORDER_FILTER 5
-#define SerialMon Serial     // Monitor serial para depuración
-#define SerialAT Serial3     // Comunicación con el módem 4G
-
-#define MAXIMUM_TEMPERATURE 29.0
-#define IDEAL_TEMPERATURE 24.0
-#define BUS_MAX_CAPACITY 50
+#include "setting.h"
 
 RIC3DMODEM gModem;
 
-// Configuración del módem (ajustar según el hardware y proveedor)
-const char apn[]      = "grupotesacom.claro.com.ar";
-const char apnUser[] = "";
-const char apnPassword[] = "";
-
-const char mqttHost[]   = "10.25.1.152";          // host de tdata
-const int mqttPort = 4098;                        // puerto
-const char mqttUser[]   = "8YVlOfVANIaKQ961f6k8"; // aca se debe poner el token del device de tdata // aa1f3770-8dcd-11f0-810b-393772542f99
-const char *mqttPassword = NULL; //8YVlOfVANIaKQ961f6k8
-
-// Module baud rate
-uint32_t rate = 115200;
-
-// Select SIM Card (0 = right, 1 = left)
-bool sim_selected = 1;
-
-// Variables para sensores
-
-uint8_t doors_state = LOW;
-
-float temperature = 0.0;
+float temperature_mA = 0.0;
 // Añadir más variables según los sensores utilizados
 
 // Variables para filtros y estadísticas
@@ -62,16 +33,15 @@ float average_temperature = 0.0;
 
 float average_acceleration = 0.0;
 
-unsigned long passengerPulses = 0;
+unsigned long passangerOccupation = 0;
 
 float confort = 0.0;
 float occupation_porcentage = 0.0;
+int totalPassangers = 0;
 
 // Variables para gestión de alarmas y errores
 bool thermistor_disconnected_loop = false;
 bool max_temperature_level_reached = false;
-
-bool door_open = false;
 
 bool puerta_abierta_en_movimiento = false;
 
@@ -88,11 +58,12 @@ const unsigned long intervalo_reporte = 10000; // Intervalo para reportes (10 se
 //-------------------------------------
 volatile long lastLedBlink = 0;
 
+//Door state HIGH = CLosed/safe | LOW = open/unsafe
+volatile uint8_t door_state = HIGH;
 volatile uint8_t lastDI1 = LOW;
 volatile uint8_t lastDI2 = LOW;
 volatile uint8_t lastDI3 = LOW;
 volatile uint32_t passengerUpCounter = 0;
-
 volatile uint32_t passengerDownCounter = 0;
 
 //-------------------------------------
@@ -100,60 +71,6 @@ WaveStats pwm_data = {0.0f, 0.0f, false};
 
 Motion speed_accs_data = {0.0f, 0.0f};
 
-
-//-------------------------------------
-void modemSetup(){
-  SerialMon.println(F("modemSetup()"));
-  pinMode(SIM_SELECT, OUTPUT);
-  SerialAT.begin(rate);
-  //gModem.begin(&SerialAT, &SerialMon);
-  gModem.begin(&SerialAT, &SerialMon, true, true);  //depuración + at dump
-  digitalWrite(SIM_SELECT, sim_selected);
-  
-  gModem.turnOff();
-  gModem.turnOn();
-}
-
-int modemInit(){
-  int result;
-  SerialMon.println(F("modemInit()"));  
-  gModem.test();
-  if (result = gModem.test()) return result;
-  SerialMon.println(F("ok"));
-  gModem.deactivatePDPContext();
-  if (result = gModem.createPDPContext(apn, apnUser, apnPassword)) return result;
-  SerialMon.println(F("ok"));
-  if (result = gModem.activatePDPContext()) return result;
-  SerialMon.println(F("ok"));
-  if (result = gModem.connectMQTTClient(mqttHost, mqttPort, mqttUser, mqttPassword)) return result;
-  SerialMon.println(F("ok"));
-  return result;
-}
-
-// Funciones para aplicar filtros
-float aplicarFiltroOrden1(float valor_actual, float valor_anterior) {
-    SerialMon.println(F("Usar filtro de Primer Orden"));
-    return valor_actual * EMA_FILTER_WEIGTH + valor_anterior * (1 - EMA_FILTER_WEIGTH);
-}
-
-float aplicarMediaMovil(float* buffer, float nuevo_valor) {
-    SerialMon.println(F("Filtro Media Movil"));
-    float sum = 0; 
-
-    //shift values in the buffer first
-    for (int j = orden_filtro - 1; j > 0; j--){
-      buffer[j] = buffer[j-1];
-    }
-    buffer[0] = nuevo_valor;
-
-    int cant = measurement_count < orden_filtro ? measurement_count : orden_filtro;
-    //calculate the sum for the filtered value 
-    for (int i = 0; i < cant; i++){
-      sum += buffer[i]; 
-    }
-
-    return sum / cant;
-}
 
 
 //-------------------------------------
@@ -191,26 +108,42 @@ void leerSensores() {
     // sensor1_valor = analogRead(PIN_SENSOR1);
     // Realizar conversión de unidades si es necesario
 
-  temperature = analogRead(AI0) / 30.0;
-  doors_state = digitalRead(DI2);
+  temperature_mA = analogRead(AI0) / 40.0;
+  door_state = digitalRead(DI2);
+  pwm_data = measureWave(DI0);
+  speed_accs_data = waveToMotion(pwm_data);
+
+  //Check if temperature sensor is connected
+  if (temperature_mA < 4){
+    thermistor_disconnected_loop = true;
+  } else {
+    thermistor_disconnected_loop = false;
+  }
+
+  SerialMon.print("speed: ");
+  SerialMon.println(speed_accs_data.speed);
+  SerialMon.print("Accs: ");
+  SerialMon.println(speed_accs_data.accs);
 
   SerialMon.print(F("Midiendo estado de las puertas: "));
-  SerialMon.println(doors_state);
+  SerialMon.println(door_state);
 
   SerialMon.print(F("Midiendo temperatura: "));
-  SerialMon.println(temperature);
+  SerialMon.println(temperature_mA);
 
-  passengerPulses += passengerUpCounter;
+  totalPassangers += passengerUpCounter;
+
+  passangerOccupation += passengerUpCounter;
   passengerUpCounter = 0;
 
   SerialMon.print(F("Midiendo pulsos de subida de pasajeros: "));
-  SerialMon.println(passengerPulses);
+  SerialMon.println(passangerOccupation);
 
-  passengerPulses = passengerPulses < passengerDownCounter ? 0 : passengerPulses - passengerDownCounter;
+  passangerOccupation = passangerOccupation < passengerDownCounter ? 0 : passangerOccupation - passengerDownCounter;
   passengerDownCounter = 0;
 
   SerialMon.print(F("Midiendo pulsos de bajada de pasajeros: "));
-  SerialMon.println(passengerPulses);
+  SerialMon.println(passangerOccupation);
 
 
   measurement_count++;
@@ -227,15 +160,7 @@ void actualizarEstadisticas() {
 
   sum_acceleration += abs(speed_accs_data.accs);
 
-  occupation_porcentage = (passengerPulses / BUS_MAX_CAPACITY) * 100;
-}
-
-void verificarSensoresDesconetados() {
-  SerialMon.println(F("Verificar sensores conectados"));
-
-  if (temperature < 4.0) {
-    thermistor_disconnected_loop = true;
-  } 
+  occupation_porcentage = (passangerOccupation / BUS_MAX_CAPACITY) * 100;
 }
 
 // Funciones para detección de alarmas y errores
@@ -243,20 +168,20 @@ void verificarAlarmas() {
   SerialMon.println(F("Verificar Alarmas"));
     // Verificar si los valores de los sensores superan umbrales definidos
     // Actualizar los flags de alarma correspondientemente
+    //(filtered_value_temperature - 4.0) * 100.0 / 16.0) - 20 >= MAXIMUM_TEMPERATURE
 
-  if(((filtered_value_temperature - 4.0) * 100.0 / 16.0) - 20 >= MAXIMUM_TEMPERATURE) {
+  if(filtered_value_temperature > MAXIMUM_TEMPERATURE) {
     max_temperature_level_reached = true;
+  } else {
+    max_temperature_level_reached = false;
   }
 
-  if (doors_state == LOW) {
-    door_open = true;
-  }
 
-  if (door_open && speed_accs_data.speed > 5) {
+  if (!door_state && (speed_accs_data.speed > MAX_SPEED_WITH_DOOR_OPEN)) {
     puerta_abierta_en_movimiento = true;
   }
 
-  if (passengerPulses > BUS_MAX_CAPACITY * 0.9) {
+  if (passangerOccupation > BUS_MAX_CAPACITY * 0.9) {
     sobrecarga = true;
   }
 }
@@ -266,26 +191,35 @@ void enviarAlarmas() {
     // Enviar alarmas al broker MQTT si se han detectado
     // Utilizar gmodem.PublishData() o la función correspondiente
 
-  char payload[32];
-
   if (thermistor_disconnected_loop) {
     gModem.publishData("termistor_desconectado", "true");
+  } else {
+    gModem.publishData("termistor_desconectado", "false");
   }
 
   if (max_temperature_level_reached) {
     gModem.publishData("temperatura_maxima", "true");
+  } else {
+    gModem.publishData("temperatura_maxima", "false");
+
   }
   
-  if (door_open) {
+  if (door_state) {
+    gModem.publishData("puerta_abierta", "false");
+  } else {
     gModem.publishData("puerta_abierta", "true");
   }
 
   if (puerta_abierta_en_movimiento) {
     gModem.publishData("puerta_abierta_en_movimiento", "true");
+  } else {
+    gModem.publishData("puerta_abierta_en_movimiento", "false");
   }
 
   if (sobrecarga) {
     gModem.publishData("sobrecarga", "true");
+  } else {
+    gModem.publishData("sobrecarga", "false");
   }
 
 
@@ -302,9 +236,9 @@ void enviarReporte() {
 
   average_acceleration = sum_acceleration / measurement_count;
 
-+ // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
-+ // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
-+ // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
+  // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
+  // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
+  // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
 + confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - IDEAL_TEMPERATURE) - average_acceleration)));
 
   
@@ -324,12 +258,16 @@ void enviarReporte() {
   gModem.publishData(speed_str, value_str_buffer);
 
   char passenger_str[] = "Cant pasajeros";
-  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", passengerPulses);
+  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", passangerOccupation);
   gModem.publishData(passenger_str, value_str_buffer);
 
   char occupation_percentage_str[] = "Porcentaje ocupacion";
   snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", occupation_porcentage);
   gModem.publishData(occupation_percentage_str, value_str_buffer);
+
+  char totalPassangers_str[] = "Total passangers";
+  dtostrf(totalPassangers, 4, 2, value_str_buffer);
+  gModem.publishData(totalPassangers_str, value_str_buffer);
 
   char confort_str[] = "Confort";
   dtostrf(confort, 4, 2, value_str_buffer);
@@ -364,8 +302,6 @@ void resetearAlarmas() {
   thermistor_disconnected_loop = false;
   max_temperature_level_reached = false;
 
-  door_open = false;
-
   puerta_abierta_en_movimiento = false;
   sobrecarga = false;
 }
@@ -389,7 +325,7 @@ void setup() {
 
   SerialMon.println(F("Inicializar comunicación serial para depuración"));
     // Inicializar comunicación serial para depuración
-    SerialMon.begin(115200);
+    SerialMon.begin(SerialBAUD);
 
     // Configurar pines de entrada para sensores
     // pinMode(PIN_SENSOR1, INPUT);
@@ -431,25 +367,19 @@ void loop() {
         // Leer sensores
         leerSensores();
 
-        pwm_data = measureWave(DI0);
-
-        speed_accs_data = waveToMotion(pwm_data);
-        SerialMon.print("speed: ");
-        SerialMon.println(speed_accs_data.speed);
-        SerialMon.print("Accs: ");
-        SerialMon.println(speed_accs_data.accs);
-
-        verificarSensoresDesconetados();
+        //verificarSensoresDesconetados();
 
         if (!thermistor_disconnected_loop) {
           // Aplicar filtros
+          float temperature_C = mA_to_temp(temperature_mA);
+
           if (orden_filtro == 1) {
-            filtered_value_temperature = aplicarFiltroOrden1(temperature, buffer_sensor_temperature[0]);
+            filtered_value_temperature = aplicarFiltroOrden1(temperature_C, buffer_sensor_temperature[0]);
             buffer_sensor_temperature[0] = filtered_value_temperature;
           } 
           
           if (orden_filtro == 5) {
-            filtered_value_temperature = aplicarMediaMovil(buffer_sensor_temperature, temperature);
+            filtered_value_temperature = aplicarMediaMovil(buffer_sensor_temperature, temperature_C);
           }
 
           SerialMon.print(F("Valor filtrado del nivel del pozo: "));
@@ -480,5 +410,6 @@ void loop() {
     }
 
     // Otras tareas si es necesario
-    // Manejo de eventos, comunicación, etc.
+    // Manejo de eventos, comunicación, etc.'
+    delay(100);
 }
