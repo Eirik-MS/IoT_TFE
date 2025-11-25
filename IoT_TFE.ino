@@ -12,6 +12,18 @@
 
 RIC3DMODEM gModem;
 
+
+Posicion posiciones[] = {
+    { -34.602346, -58.381957 }, // 0
+    { -34.605428, -58.381807 }, // 1
+    { -34.608932, -58.381609 }, // 2
+    { -34.611805, -58.381267 }, // 3
+    { -34.614235, -58.381282 }, // 4
+    { -34.617404, -58.381180 }  // 5
+};
+
+int index = 0;
+
 float temperature_mA = 0.0;
 // Añadir más variables según los sensores utilizados
 
@@ -25,9 +37,13 @@ float filtered_value_temperature = 0.0;
 
 float sum_temperature = 0.0;
 
+float sum_acceleration = 0.0;
+
 int measurement_count = 0;
 
 float average_temperature = 0.0;
+
+float average_acceleration = 0.0;
 
 unsigned long passangerOccupation = 0;
 
@@ -49,7 +65,7 @@ unsigned long tiempo_medicion = 0;
 const unsigned long intervalo_medicion = 1000;  // Intervalo para mediciones (1 segundo)
 
 unsigned long tiempo_reporte = 0;
-const unsigned long intervalo_reporte = 10000; // Intervalo para reportes (10 segundos)
+const unsigned long intervalo_reporte = 15000; // Intervalo para reportes (10 segundos)
 
 //-------------------------------------
 volatile long lastLedBlink = 0;
@@ -154,12 +170,7 @@ void actualizarEstadisticas() {
 
   sum_temperature += filtered_value_temperature;
 
-  average_temperature = sum_temperature / measurement_count;
-
-  // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
-  // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
-  // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
-  confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - 24) - abs(speed_accs_data.accs))));
+  sum_acceleration += abs(speed_accs_data.accs);
 
   occupation_porcentage = (passangerOccupation / BUS_MAX_CAPACITY) * 100;
 }
@@ -233,7 +244,22 @@ void enviarReporte() {
     // Calcular promedios
     // Enviar máximos, mínimos y promedios al broker MQTT
 
-    //cudal pulses
+  average_temperature = sum_temperature / measurement_count;
+
+  average_acceleration = sum_acceleration / measurement_count;
+
+
+  Posicion punto = posiciones[index];
+  float demoras[totalPosiciones];
+  calcularTiemposEspera(index, speed_accs_data.speed, demoras);
+  float demoraReal = demoras[5] - startDelay * index;
+
+
+  // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
+  // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
+  // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
++ confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - IDEAL_TEMPERATURE) - average_acceleration)));
+
   
   //Have this long for large amounts of data, 
   char value_str_buffer[32];
@@ -272,6 +298,62 @@ void enviarReporte() {
   char accs_str[] = "Aceleracion";
   dtostrf(speed_accs_data.accs, 4, 2, value_str_buffer);
   gModem.publishData(accs_str, value_str_buffer);
+
+  char lat_str[] = "latitiud";
+  dtostrf(punto.lat, 8, 6, value_str_buffer);
+  gModem.publishData(lat_str, value_str_buffer);
+
+  char lon_str[] = "longitud";
+  dtostrf(punto.lon, 8, 6, value_str_buffer);
+  gModem.publishData(lon_str, value_str_buffer);
+
+  char demora_str[] = "DemoraPosicion0";
+  dtostrf(demoras[0], 4, 2, value_str_buffer);
+  gModem.publishData(demora_str, value_str_buffer);
+
+  demora_str[] = "DemoraPosicion1";
+  dtostrf(demoras[1], 4, 2, value_str_buffer);
+  gModem.publishData(demora_str, value_str_buffer);
+
+  demora_str[] = "DemoraPosicion2";
+  dtostrf(demoras[2], 4, 2, value_str_buffer);
+  gModem.publishData(demora_str, value_str_buffer);
+
+  demora_str[] = "DemoraPosicion3";
+  dtostrf(demoras[3], 4, 2, value_str_buffer);
+  gModem.publishData(demora_str, value_str_buffer);
+
+  demora_str[] = "DemoraPosicion4";
+  dtostrf(demoras[4], 4, 2, value_str_buffer);
+  gModem.publishData(demora_str, value_str_buffer);
+
+  demora_str[] = "DemoraPosicion5";
+  dtostrf(demoras[5], 4, 2, value_str_buffer);
+  gModem.publishData(demora_str, value_str_buffer);
+
+  if (demoraReal < 7) {
+    gModem.publishData("aTiempo", "true");
+  } else {
+    gModem.publishData("aTiempo", "false");
+  }
+
+  if (demoraReal >= 7 && demoraReal < 10) {
+    gModem.publishData("atrasado", "true");
+  } else {
+    gModem.publishData("atrasado", "false");
+  }
+
+  if (demoraReal >= 10) {
+    gModem.publishData("muyAtrasado", "true");
+  } else {
+    gModem.publishData("muyAtrasado", "false");
+  }
+
+  char index_str[] = "index";
+  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", index);
+  gModem.publishData(index_str, value_str_buffer);
+
+  index = (index + 1) % POSICIONES;
 }
 
 void resetearEstadisticas() {
@@ -282,7 +364,10 @@ void resetearEstadisticas() {
   }
 
   sum_temperature = 0.0;
+  sum_acceleration = 0.0;
+  
   average_temperature = 0.0;
+  average_acceleration = 0.0;
 
   confort = 0.0;
 
