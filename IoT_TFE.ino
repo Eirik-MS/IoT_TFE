@@ -254,9 +254,12 @@ void enviarReporte() {
   snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", passangerOccupation);
   gModem.publishData(passenger_str, value_str_buffer);
 
+  int occupationProcent_int = (int) occupation_porcentage;
   char occupation_percentage_str[] = "Porcentaje ocupacion";
-  snprintf(value_str_buffer, sizeof(value_str_buffer), "%ld", occupation_porcentage);
+  snprintf(value_str_buffer, sizeof(value_str_buffer), "%d", occupationProcent_int);
   gModem.publishData(occupation_percentage_str, value_str_buffer);
+  SerialMon.print("Passanger Ocupation: ");
+  SerialMon.println(occupationProcent_int);
 
   char totalPassangers_str[] = "Total passangers";
   dtostrf(totalPassangers, 4, 2, value_str_buffer);
