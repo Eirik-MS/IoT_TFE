@@ -250,15 +250,15 @@ void enviarReporte() {
 
 
   Posicion punto = posiciones[index];
-  float demoras[totalPosiciones];
+  float demoras[POSICIONES];
   calcularTiemposEspera(index, speed_accs_data.speed, demoras);
-  float demoraReal = demoras[5] - startDelay * index;
+  float demoraReal = demoras[5] - START_DELAY * index;
 
 
   // El cálculo de 'confort' se basa en una escala de 1 a 10, donde 10 es el máximo confort.
   // Se penaliza el confort si la temperatura se aleja de 24°C (considerada óptima) y si la aceleración aumenta.
   // La fórmula: 10 - 0.4 * |temperatura_filtrada - 24| - |aceleración|, se limita entre 1 y 10.
-+ confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - IDEAL_TEMPERATURE) - average_acceleration)));
+  confort = fmax(1, fmin(10, (10 - 0.4 * abs(average_temperature - IDEAL_TEMPERATURE) - speed_accs_data.accs)));
 
   
   //Have this long for large amounts of data, 
@@ -311,25 +311,25 @@ void enviarReporte() {
   dtostrf(demoras[0], 4, 2, value_str_buffer);
   gModem.publishData(demora_str, value_str_buffer);
 
-  demora_str[] = "DemoraPosicion1";
+  char demora_str1[] = "DemoraPosicion1";
   dtostrf(demoras[1], 4, 2, value_str_buffer);
-  gModem.publishData(demora_str, value_str_buffer);
+  gModem.publishData(demora_str1, value_str_buffer);
 
-  demora_str[] = "DemoraPosicion2";
+  char demora_str2[] = "DemoraPosicion2";
   dtostrf(demoras[2], 4, 2, value_str_buffer);
-  gModem.publishData(demora_str, value_str_buffer);
+  gModem.publishData(demora_str2, value_str_buffer);
 
-  demora_str[] = "DemoraPosicion3";
+  char demora_str3[] = "DemoraPosicion3";
   dtostrf(demoras[3], 4, 2, value_str_buffer);
-  gModem.publishData(demora_str, value_str_buffer);
+  gModem.publishData(demora_str3, value_str_buffer);
 
-  demora_str[] = "DemoraPosicion4";
+  char demora_str4[] = "DemoraPosicion4";
   dtostrf(demoras[4], 4, 2, value_str_buffer);
-  gModem.publishData(demora_str, value_str_buffer);
+  gModem.publishData(demora_str4, value_str_buffer);
 
-  demora_str[] = "DemoraPosicion5";
+  char demora_str5[] = "DemoraPosicion5";
   dtostrf(demoras[5], 4, 2, value_str_buffer);
-  gModem.publishData(demora_str, value_str_buffer);
+  gModem.publishData(demora_str5, value_str_buffer);
 
   if (demoraReal < 7) {
     gModem.publishData("aTiempo", "true");
@@ -489,5 +489,5 @@ void loop() {
 
     // Otras tareas si es necesario
     // Manejo de eventos, comunicación, etc.'
-    delay(100);
+    delay(1000);
 }

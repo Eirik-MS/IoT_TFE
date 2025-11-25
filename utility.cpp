@@ -59,7 +59,7 @@ float calcularDemora(float velocidad) {
 void calcularTiemposEspera(int indiceActual, float velocidad, float tiempos[]) {
     float acumulado = 0;
 
-    for (int i = 0; i < totalPosiciones; i++) {
+    for (int i = 0; i < POSICIONES; i++) {
         if (i <= indiceActual) {
             tiempos[i] = 0;
         } else {
