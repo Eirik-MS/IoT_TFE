@@ -14,6 +14,10 @@
 #define MAX_SPEED_WITH_DOOR_OPEN 5
 #define BUS_MAX_CAPACITY 50
 
+#define START_DELAY 7
+#define POSICIONES 6
+
+
 extern RIC3DMODEM gModem;
 
 extern int measurement_count;
