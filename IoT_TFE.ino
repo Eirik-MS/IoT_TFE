@@ -251,7 +251,7 @@ void enviarReporte() {
 
   Posicion punto = posiciones[index];
   float demoras[totalPosiciones];
-  calcularTiemposEspera(index, Velocidad, demoras);
+  calcularTiemposEspera(index, speed_accs_data.speed, demoras);
   float demoraReal = demoras[5] - startDelay * index;
 
 
